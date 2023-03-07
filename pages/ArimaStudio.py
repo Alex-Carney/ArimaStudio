@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import common.arima_functions as arf
 
-st.write("Hello World, Studio Page")
 
 # ----------------- GLOBAL DATA AND INITIAL STATE VALUES ------------------- #
 if 'data_processing_flag' not in st.session_state:
@@ -26,6 +25,7 @@ def upload_default_csv_callback():
         df_to_display = pd.read_csv("./resources/microsoft_stock_prices.csv")
         st.session_state.df = df_to_display
 
+
 def decompose_time_series():
     # Decompose time series into Trend and Seasonality, both Add. and Mult. wise
     result_mul, result_add = arf.decompose_data(st.session_state.df, st.session_state.value_col_name)
@@ -38,7 +38,11 @@ def decompose_time_series():
         st.pyplot(fig_add)
 
 
-
+def visualize_order_plot(type: str):
+    # Determine order of p, d, or q by generating the necessary plot
+    pdq_fig = arf.find_pdq_plot(st.session_state.df, st.session_state.value_col_name, type)
+    with col2:
+        st.pyplot(pdq_fig)
 
 
 def tag_and_process_data(date_col_name: str, value_col_name: str, start_year: str):
@@ -65,6 +69,16 @@ def tag_and_process_data(date_col_name: str, value_col_name: str, start_year: st
     # Signal that data processing can begin
     st.session_state.df = df
     st.session_state.data_processing_flag = True
+
+
+def build_and_forecast_model(model_spec: tuple, train_test_date, num_prediction_days: int):
+    final_plot = arf.build_and_forecast(st.session_state.df,
+                                        st.session_state.value_col_name,
+                                        model_spec,
+                                        train_test_date,
+                                        num_prediction_days)
+    with col2:
+        st.pyplot(final_plot)
 
 
 # ------------------- WIDGETS -------------------------- #
@@ -105,15 +119,33 @@ if st.session_state.data_processing_flag:
         decompose_data_button = st.button("Decompose Time Series",
                                           on_click=decompose_time_series)
 
-
 if st.session_state.data_processing_flag:
     # Setup PDQ Expander
     pdq_expander = col1.expander(label="Determine P,D,Q")
     with pdq_expander:
-        st.button("Determine D Order")
-        st.button("Determine P Order")
-        st.button("Determine Q Order")
+        st.button("Determine D Order", on_click=visualize_order_plot, args='d')
+        st.button("Determine P Order", on_click=visualize_order_plot, args='p')
+        st.button("Determine Q Order", on_click=visualize_order_plot, args='q')
 
+if st.session_state.data_processing_flag:
+    # Setup build model expander
+    model_expander = col1.expander(label="Build Model and Forecast")
+    with model_expander:
+        model_build_form = st.form(key="model_build_form", clear_on_submit=False)
+        with model_build_form:
+            p_order = st.number_input("P Order", value=0)
+            d_order = st.number_input("D Order", value=0)
+            q_order = st.number_input("Q Order", value=0)
+            train_test_date = st.date_input("Forecast Start Date")
+            num_prediction_days = st.number_input("Number of days to predict")
+            model_run_submit = st.form_submit_button("Build And Forecast")
+            if p_order is not None and \
+                    d_order is not None and \
+                    q_order is not None and \
+                    train_test_date is not None and \
+                    num_prediction_days is not None and \
+                    model_run_submit is True:
+                build_and_forecast_model((p_order, d_order, q_order), train_test_date, int(num_prediction_days))
 
 # Render the data only if it exists
 if st.session_state.df is not None:
