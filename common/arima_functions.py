@@ -9,6 +9,7 @@ from statsmodels.tsa.arima_model import ARIMA
 import pmdarima as pm
 from statsmodels.tsa.seasonal import seasonal_decompose
 from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes
+import io
 
 
 def decompose_data(df: DataFrame, response_var: str):
@@ -67,9 +68,12 @@ def find_pdq_plot(df: DataFrame, response_var: str, type: str):
     return fig
 
 
-def build_and_forecast(df, response_col, model_spec, train_test_date, num_predictions):
+def build_and_forecast(df, response_col, model_spec, seasonal_model_spec, train_test_date, num_predictions):
     # Build model, and fit it to the data
-    model = pm.ARIMA(order=model_spec)
+    if bool(seasonal_model_spec):
+        model = pm.ARIMA(order=model_spec, seasonal_order=seasonal_model_spec)
+    else:
+        model = pm.ARIMA(order=model_spec)
 
     # Split the data
     cutoff_date = pd.to_datetime(train_test_date)
@@ -88,8 +92,7 @@ def build_and_forecast(df, response_col, model_spec, train_test_date, num_predic
     index_of_fc = pd.bdate_range(after_df.index[0], periods=num_predictions, freq='B')
 
     # plot training starting backwards in time
-    index_of_train = pd.bdate_range(before_df.index[-1], periods=3*num_predictions, freq='-1B')
-
+    index_of_train = pd.bdate_range(before_df.index[-1], periods=3 * num_predictions, freq='-1B')
 
     # make series for plotting purpose
     # fitted_predictor = pd.Series(df[COLUMN_TO_ANALYZE],
@@ -111,13 +114,33 @@ def build_and_forecast(df, response_col, model_spec, train_test_date, num_predic
     ax.plot(test_data, color='red')
     ax.plot(fitted_series, color='darkgreen')
     ax.fill_between(lower_conf.index,
-                     lower_conf,
-                     upper_conf,
-                     color='k', alpha=.15)
+                    lower_conf,
+                    upper_conf,
+                    color='k', alpha=.15)
 
     ax.set_title("ARIMA - Final Forecast - MAPE = " + str(np.around(100 * mape, 2)) + "%")
     ax.tick_params(axis='x', rotation=45)
     ax.legend(['Training Data', 'Actual', 'Predicted'])
     ax.grid()
 
-    return fig
+    # Also return a model summary
+    model_summary_csv = model.summary().tables[1].as_csv()
+    model_summary_df = pd.read_csv(io.StringIO(model_summary_csv), header=0, index_col=0)
+
+    return fig, model_summary_df
+
+
+def determine_optimal_sarima(df, response_col, frequency):
+    optimal_model = pm.auto_arima(
+        df[response_col],
+        start_p=1, start_q=1,
+        test='adf',
+        max_p=3, max_q=3, m=frequency,
+        start_P=0, seasonal=True,
+        d=None, D=1, trace=True,
+        error_action='ignore',
+        suppress_warnings=True,
+        stepwise=True,
+        verbose=0
+    )
+    return optimal_model
